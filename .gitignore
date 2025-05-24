@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/
+.idea/
+*.tsbuildinfo
+.envrc
+.secrets
+claude-config.json
+
+docs/openapi.json
+docs/stellar-network-monitoring-mcp-requirements.md
