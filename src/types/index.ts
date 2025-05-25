@@ -33,11 +33,12 @@ export interface Node {
 
 export interface NodeSnapshot {
   publicKey: string;
-  timestamp: string;
+  dateCreated: string;
   active: boolean;
   overLoaded: boolean;
   validating: boolean;
   stellarCoreVersion?: string;
+  uptime?: number;
   geography?: Geography;
   statistics?: NodeStatistics;
 }
@@ -65,9 +66,11 @@ export interface Organization {
 
 export interface OrganizationSnapshot {
   organizationId: string;
-  timestamp: string;
+  dateCreated: string;
   validators: string[];
-  nodes: string[];
+  isTierOneOrganization: boolean;
+  subQuorumAvailable: boolean;
+  subQuorumThreshold: number;
   statistics?: OrganizationStatistics;
 }
 

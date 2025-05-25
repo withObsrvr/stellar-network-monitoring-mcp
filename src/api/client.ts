@@ -124,6 +124,10 @@ export class StellarNetworkApiClient {
     return this.makeRequest<NetworkInfo>('/v1', params);
   }
 
+  async getNetworkData(at?: string): Promise<ApiResponse<NetworkInfo>> {
+    return this.getNetworkInfo(at);
+  }
+
   async getAllNodes(at?: string): Promise<ApiResponse<Node[]>> {
     const params = at ? { at } : undefined;
     return this.makeRequest<Node[]>('/v1/node', params);

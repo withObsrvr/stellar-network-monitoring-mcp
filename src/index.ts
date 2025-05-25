@@ -46,18 +46,35 @@ class StellarNetworkMonitoringServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
         tools: [
+          // Network Tools
           this.networkTools.getNetworkStatusTool(),
           this.networkTools.getNetworkStatisticsTool(),
           this.networkTools.checkNetworkConsensusTool(),
+          this.networkTools.analyzeNetworkTrendsTool(),
+          this.networkTools.detectNetworkIssuesTool(),
+          this.networkTools.checkQuorumHealthTool(),
+          this.networkTools.generateNetworkReportTool(),
+          this.networkTools.exportNetworkDataTool(),
+          // Node Tools
           this.nodeTools.getAllNodesTool(),
           this.nodeTools.getNodeDetailsTool(),
           this.nodeTools.checkNodeHealthTool(),
           this.nodeTools.findFailingNodesTool(),
           this.nodeTools.getValidatorNodesTool(),
+          this.nodeTools.getNodeSnapshotsTool(),
+          this.nodeTools.getPerformanceMetricsTool(),
+          this.nodeTools.compareNodesTool(),
+          this.nodeTools.rankValidatorsTool(),
+          this.nodeTools.searchNodesTool(),
+          this.nodeTools.findNodesByLocationTool(),
+          this.nodeTools.getNodesByVersionTool(),
+          this.nodeTools.findPeerConnectionsTool(),
+          // Organization Tools
           this.organizationTools.getAllOrganizationsTool(),
           this.organizationTools.getOrganizationDetailsTool(),
           this.organizationTools.analyzeOrganizationReliabilityTool(),
           this.organizationTools.getOrganizationNodesTool(),
+          this.organizationTools.getOrganizationSnapshotsTool(),
         ],
       };
     });
@@ -69,6 +86,7 @@ class StellarNetworkMonitoringServer {
         let result: any;
 
         switch (name) {
+          // Network Tools
           case 'get_network_status':
             result = await this.networkTools.handleGetNetworkStatus(args as any);
             break;
@@ -78,6 +96,22 @@ class StellarNetworkMonitoringServer {
           case 'check_network_consensus':
             result = await this.networkTools.handleCheckNetworkConsensus(args as any);
             break;
+          case 'analyze_network_trends':
+            result = await this.networkTools.handleAnalyzeNetworkTrends(args as any);
+            break;
+          case 'detect_network_issues':
+            result = await this.networkTools.handleDetectNetworkIssues(args as any);
+            break;
+          case 'check_quorum_health':
+            result = await this.networkTools.handleCheckQuorumHealth(args as any);
+            break;
+          case 'generate_network_report':
+            result = await this.networkTools.handleGenerateNetworkReport(args as any);
+            break;
+          case 'export_network_data':
+            result = await this.networkTools.handleExportNetworkData(args as any);
+            break;
+          // Node Tools
           case 'get_all_nodes':
             result = await this.nodeTools.handleGetAllNodes(args as any);
             break;
@@ -93,6 +127,31 @@ class StellarNetworkMonitoringServer {
           case 'get_validator_nodes':
             result = await this.nodeTools.handleGetValidatorNodes(args as any);
             break;
+          case 'get_node_snapshots':
+            result = await this.nodeTools.handleGetNodeSnapshots(args as any);
+            break;
+          case 'get_performance_metrics':
+            result = await this.nodeTools.handleGetPerformanceMetrics(args as any);
+            break;
+          case 'compare_nodes':
+            result = await this.nodeTools.handleCompareNodes(args as any);
+            break;
+          case 'rank_validators':
+            result = await this.nodeTools.handleRankValidators(args as any);
+            break;
+          case 'search_nodes':
+            result = await this.nodeTools.handleSearchNodes(args as any);
+            break;
+          case 'find_nodes_by_location':
+            result = await this.nodeTools.handleFindNodesByLocation(args as any);
+            break;
+          case 'get_nodes_by_version':
+            result = await this.nodeTools.handleGetNodesByVersion(args as any);
+            break;
+          case 'find_peer_connections':
+            result = await this.nodeTools.handleFindPeerConnections(args as any);
+            break;
+          // Organization Tools
           case 'get_all_organizations':
             result = await this.organizationTools.handleGetAllOrganizations();
             break;
@@ -104,6 +163,9 @@ class StellarNetworkMonitoringServer {
             break;
           case 'get_organization_nodes':
             result = await this.organizationTools.handleGetOrganizationNodes(args as any);
+            break;
+          case 'get_organization_snapshots':
+            result = await this.organizationTools.handleGetOrganizationSnapshots(args as any);
             break;
           default:
             throw new Error(`Unknown tool: ${name}`);

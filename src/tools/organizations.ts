@@ -1,7 +1,7 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { StellarNetworkApiClient } from '../api/client.js';
 import { logger } from '../utils/logger.js';
-import { Organization, Node } from '../types/index.js';
+import { Organization, Node, OrganizationSnapshot } from '../types/index.js';
 
 export class OrganizationTools {
   constructor(private client: StellarNetworkApiClient) {}
@@ -73,6 +73,31 @@ export class OrganizationTools {
           activeOnly: {
             type: 'boolean',
             description: 'Filter to only return active nodes (default: false)'
+          }
+        },
+        required: ['organizationId']
+      }
+    };
+  }
+
+  getOrganizationSnapshotsTool(): Tool {
+    return {
+      name: 'get_organization_snapshots',
+      description: 'Get historical organization data',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          organizationId: {
+            type: 'string',
+            description: 'The ID of the organization to get snapshots for'
+          },
+          at: {
+            type: 'string',
+            description: 'ISO 8601 datetime for historical data (optional)'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of snapshots to return (default: 100)'
           }
         },
         required: ['organizationId']
@@ -347,5 +372,96 @@ export class OrganizationTools {
       acc[country] = (acc[country] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
+  }
+
+  async handleGetOrganizationSnapshots(args: { organizationId: string; at?: string; limit?: number }): Promise<any> {
+    try {
+      logger.info('Fetching organization snapshots', { organizationId: args.organizationId, at: args.at, limit: args.limit });
+      
+      const response = await this.client.getOrganizationSnapshots(args.organizationId, args.at);
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to fetch organization snapshots');
+      }
+
+      let snapshots = response.data;
+      
+      if (args.limit && args.limit > 0) {
+        snapshots = snapshots.slice(0, args.limit);
+      }
+
+      const trends = this.analyzeOrganizationTrends(snapshots);
+
+      return {
+        organizationId: args.organizationId,
+        snapshots: snapshots.map(snapshot => ({
+          timestamp: snapshot.dateCreated,
+          validators: snapshot.validators,
+          isTierOneOrganization: snapshot.isTierOneOrganization,
+          subQuorumAvailable: snapshot.subQuorumAvailable,
+          subQuorumThreshold: snapshot.subQuorumThreshold
+        })),
+        trends,
+        summary: {
+          total: snapshots.length,
+          timespan: snapshots.length > 0 ? {
+            start: snapshots[snapshots.length - 1]?.dateCreated,
+            end: snapshots[0]?.dateCreated
+          } : null,
+          currentValidators: snapshots[0]?.validators?.length || 0,
+          tierOneStatus: snapshots[0]?.isTierOneOrganization || false
+        }
+      };
+    } catch (error) {
+      logger.error('Error fetching organization snapshots', { 
+        error: error instanceof Error ? error.message : String(error), 
+        organizationId: args.organizationId 
+      });
+      throw new Error(`Failed to get organization snapshots: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private analyzeOrganizationTrends(snapshots: OrganizationSnapshot[]): any {
+    if (snapshots.length === 0) {
+      return { validatorTrend: 'no_data', tierOneHistory: [], statusChanges: 0 };
+    }
+
+    const validatorCounts = snapshots.map(s => s.validators?.length || 0);
+    const tierOneHistory = snapshots.map(s => ({
+      timestamp: s.dateCreated,
+      isTierOne: s.isTierOneOrganization
+    }));
+
+    let statusChanges = 0;
+    for (let i = 1; i < snapshots.length; i++) {
+      if (snapshots[i-1].isTierOneOrganization !== snapshots[i].isTierOneOrganization) {
+        statusChanges++;
+      }
+    }
+
+    const validatorTrend = this.calculateValidatorTrend(validatorCounts);
+
+    return {
+      validatorTrend,
+      tierOneHistory,
+      statusChanges,
+      averageValidators: validatorCounts.length > 0 ? validatorCounts.reduce((sum, count) => sum + count, 0) / validatorCounts.length : 0
+    };
+  }
+
+  private calculateValidatorTrend(validatorCounts: number[]): string {
+    if (validatorCounts.length < 2) return 'insufficient_data';
+
+    const recentCounts = validatorCounts.slice(0, Math.min(5, validatorCounts.length));
+    const olderCounts = validatorCounts.slice(-Math.min(5, validatorCounts.length));
+
+    const recentAvg = recentCounts.reduce((sum, count) => sum + count, 0) / recentCounts.length;
+    const olderAvg = olderCounts.reduce((sum, count) => sum + count, 0) / olderCounts.length;
+
+    const difference = recentAvg - olderAvg;
+
+    if (difference > 0.5) return 'growing';
+    if (difference < -0.5) return 'shrinking';
+    return 'stable';
   }
 }
