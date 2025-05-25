@@ -13,7 +13,31 @@ export class NetworkTools {
   getNetworkStatusTool(): Tool {
     return {
       name: 'get_network_status',
-      description: 'Get overall network health, consensus status, and key metrics',
+      description: `Quick overview of current Stellar network health and status.
+
+Use this when a user asks:
+- "How is the Stellar network doing?"
+- "What's the current network status?"
+- "Quick network health check"
+- "Is Stellar working normally?"
+- "Network overview"
+
+This provides:
+- Overall health score (0-100)
+- Active nodes and validators count
+- Basic consensus status
+- Critical network metrics
+
+DO NOT use this for:
+- Detailed problem diagnosis (use investigate_network_issues instead)
+- Validator performance analysis (use monitor_validator_performance instead)
+- Specific node issues (use check_node_health instead)
+- Historical trends (use analyze_network_trends instead)
+
+Examples:
+- User: "Is the network healthy?"
+- User: "Quick status check"
+- User: "How many nodes are running?"`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -26,26 +50,35 @@ export class NetworkTools {
     };
   }
 
-  getNetworkStatisticsTool(): Tool {
-    return {
-      name: 'get_network_statistics',
-      description: 'Retrieve network-wide statistics and performance metrics',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          at: {
-            type: 'string',
-            description: 'ISO 8601 datetime for historical data (optional)'
-          }
-        }
-      }
-    };
-  }
 
   checkNetworkConsensusTool(): Tool {
     return {
       name: 'check_network_consensus',
-      description: 'Analyze consensus state and identify potential issues',
+      description: `Analyze Stellar network consensus health and safety.
+
+Use this when a user asks:
+- "Is consensus working properly?"
+- "Are validators agreeing?"
+- "Consensus health check"
+- "Why isn't the network reaching consensus?"
+- "Quorum intersection analysis"
+
+This provides:
+- Consensus health status (healthy/unhealthy)
+- Safety level assessment (0-100)
+- Quorum intersection analysis
+- Validator participation issues
+
+DO NOT use this for:
+- General network health (use get_network_status instead)
+- Detailed consensus troubleshooting (use troubleshoot_consensus_issues instead)
+- Node performance (use monitor_validator_performance instead)
+- Historical consensus trends (use analyze_network_trends instead)
+
+Examples:
+- User: "Is the network reaching consensus?"
+- User: "Check consensus safety"
+- User: "Quorum problems?"`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -83,7 +116,32 @@ export class NetworkTools {
   detectNetworkIssuesTool(): Tool {
     return {
       name: 'detect_network_issues',
-      description: 'Identify current network problems or anomalies',
+      description: `Detect and identify current Stellar network problems.
+
+Use this when a user asks:
+- "What issues are happening on the network?"
+- "Are there any network problems?"
+- "Current network alerts"
+- "What's wrong with the network?"
+- "Network problem detection"
+
+This identifies:
+- Performance issues and bottlenecks
+- Connectivity problems
+- Validator issues
+- Consensus anomalies
+- Security concerns
+
+DO NOT use this for:
+- General health overview (use get_network_status instead)
+- Comprehensive investigation (use investigate_network_issues instead)
+- Historical issue trends (use analyze_network_trends instead)
+- Specific node problems (use find_failing_nodes instead)
+
+Examples:
+- User: "Any network problems right now?"
+- User: "What issues should I know about?"
+- User: "Current network alerts"`,
       inputSchema: {
         type: 'object',
         properties: {

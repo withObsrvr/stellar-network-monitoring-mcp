@@ -11,6 +11,7 @@ import { StellarNetworkApiClient } from './api/client.js';
 import { NetworkTools } from './tools/network.js';
 import { NodeTools } from './tools/nodes.js';
 import { OrganizationTools } from './tools/organizations.js';
+import { WorkflowTools } from './tools/workflows.js';
 import { logger } from './utils/logger.js';
 
 class StellarNetworkMonitoringServer {
@@ -19,6 +20,7 @@ class StellarNetworkMonitoringServer {
   private networkTools: NetworkTools;
   private nodeTools: NodeTools;
   private organizationTools: OrganizationTools;
+  private workflowTools: WorkflowTools;
 
   constructor() {
     this.server = new Server(
@@ -38,6 +40,7 @@ class StellarNetworkMonitoringServer {
     this.networkTools = new NetworkTools(this.apiClient);
     this.nodeTools = new NodeTools(this.apiClient);
     this.organizationTools = new OrganizationTools(this.apiClient);
+    this.workflowTools = new WorkflowTools(this.apiClient);
 
     this.setupHandlers();
   }
@@ -46,35 +49,31 @@ class StellarNetworkMonitoringServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
         tools: [
-          // Network Tools
+          // High-Level Workflow Tools (LLM-Optimized)
+          this.workflowTools.investigateNetworkIssuesTool(),
+          this.workflowTools.monitorValidatorPerformanceTool(),
+          this.workflowTools.analyzeOrganizationHealthTool(),
+          this.workflowTools.analyzeNetworkDiversityTool(),
+          this.workflowTools.troubleshootConsensusIssuesTool(),
+          
+          // Core Network Tools
           this.networkTools.getNetworkStatusTool(),
-          this.networkTools.getNetworkStatisticsTool(),
           this.networkTools.checkNetworkConsensusTool(),
-          this.networkTools.analyzeNetworkTrendsTool(),
           this.networkTools.detectNetworkIssuesTool(),
-          this.networkTools.checkQuorumHealthTool(),
+          this.networkTools.analyzeNetworkTrendsTool(),
           this.networkTools.generateNetworkReportTool(),
-          this.networkTools.exportNetworkDataTool(),
-          // Node Tools
-          this.nodeTools.getAllNodesTool(),
-          this.nodeTools.getNodeDetailsTool(),
+          
+          // Essential Node Tools
+          this.nodeTools.searchNodesTool(),
           this.nodeTools.checkNodeHealthTool(),
           this.nodeTools.findFailingNodesTool(),
           this.nodeTools.getValidatorNodesTool(),
-          this.nodeTools.getNodeSnapshotsTool(),
-          this.nodeTools.getPerformanceMetricsTool(),
           this.nodeTools.compareNodesTool(),
           this.nodeTools.rankValidatorsTool(),
-          this.nodeTools.searchNodesTool(),
-          this.nodeTools.findNodesByLocationTool(),
-          this.nodeTools.getNodesByVersionTool(),
-          this.nodeTools.findPeerConnectionsTool(),
+          
           // Organization Tools
-          this.organizationTools.getAllOrganizationsTool(),
           this.organizationTools.getOrganizationDetailsTool(),
-          this.organizationTools.analyzeOrganizationReliabilityTool(),
           this.organizationTools.getOrganizationNodesTool(),
-          this.organizationTools.getOrganizationSnapshotsTool(),
         ],
       };
     });
@@ -86,37 +85,43 @@ class StellarNetworkMonitoringServer {
         let result: any;
 
         switch (name) {
-          // Network Tools
+          // High-Level Workflow Tools
+          case 'investigate_network_issues':
+            result = await this.workflowTools.handleInvestigateNetworkIssues(args as any);
+            break;
+          case 'monitor_validator_performance':
+            result = await this.workflowTools.handleMonitorValidatorPerformance(args as any);
+            break;
+          case 'analyze_organization_health':
+            result = await this.workflowTools.handleAnalyzeOrganizationHealth(args as any);
+            break;
+          case 'analyze_network_diversity':
+            result = await this.workflowTools.handleAnalyzeNetworkDiversity(args as any);
+            break;
+          case 'troubleshoot_consensus_issues':
+            result = await this.workflowTools.handleTroubleshootConsensusIssues(args as any);
+            break;
+
+          // Core Network Tools
           case 'get_network_status':
             result = await this.networkTools.handleGetNetworkStatus(args as any);
-            break;
-          case 'get_network_statistics':
-            result = await this.networkTools.handleGetNetworkStatistics(args as any);
             break;
           case 'check_network_consensus':
             result = await this.networkTools.handleCheckNetworkConsensus(args as any);
             break;
-          case 'analyze_network_trends':
-            result = await this.networkTools.handleAnalyzeNetworkTrends(args as any);
-            break;
           case 'detect_network_issues':
             result = await this.networkTools.handleDetectNetworkIssues(args as any);
             break;
-          case 'check_quorum_health':
-            result = await this.networkTools.handleCheckQuorumHealth(args as any);
+          case 'analyze_network_trends':
+            result = await this.networkTools.handleAnalyzeNetworkTrends(args as any);
             break;
           case 'generate_network_report':
             result = await this.networkTools.handleGenerateNetworkReport(args as any);
             break;
-          case 'export_network_data':
-            result = await this.networkTools.handleExportNetworkData(args as any);
-            break;
-          // Node Tools
-          case 'get_all_nodes':
-            result = await this.nodeTools.handleGetAllNodes(args as any);
-            break;
-          case 'get_node_details':
-            result = await this.nodeTools.handleGetNodeDetails(args as any);
+
+          // Essential Node Tools
+          case 'search_nodes':
+            result = await this.nodeTools.handleSearchNodes(args as any);
             break;
           case 'check_node_health':
             result = await this.nodeTools.handleCheckNodeHealth(args as any);
@@ -127,46 +132,21 @@ class StellarNetworkMonitoringServer {
           case 'get_validator_nodes':
             result = await this.nodeTools.handleGetValidatorNodes(args as any);
             break;
-          case 'get_node_snapshots':
-            result = await this.nodeTools.handleGetNodeSnapshots(args as any);
-            break;
-          case 'get_performance_metrics':
-            result = await this.nodeTools.handleGetPerformanceMetrics(args as any);
-            break;
           case 'compare_nodes':
             result = await this.nodeTools.handleCompareNodes(args as any);
             break;
           case 'rank_validators':
             result = await this.nodeTools.handleRankValidators(args as any);
             break;
-          case 'search_nodes':
-            result = await this.nodeTools.handleSearchNodes(args as any);
-            break;
-          case 'find_nodes_by_location':
-            result = await this.nodeTools.handleFindNodesByLocation(args as any);
-            break;
-          case 'get_nodes_by_version':
-            result = await this.nodeTools.handleGetNodesByVersion(args as any);
-            break;
-          case 'find_peer_connections':
-            result = await this.nodeTools.handleFindPeerConnections(args as any);
-            break;
+
           // Organization Tools
-          case 'get_all_organizations':
-            result = await this.organizationTools.handleGetAllOrganizations();
-            break;
           case 'get_organization_details':
             result = await this.organizationTools.handleGetOrganizationDetails(args as any);
-            break;
-          case 'analyze_organization_reliability':
-            result = await this.organizationTools.handleAnalyzeOrganizationReliability(args as any);
             break;
           case 'get_organization_nodes':
             result = await this.organizationTools.handleGetOrganizationNodes(args as any);
             break;
-          case 'get_organization_snapshots':
-            result = await this.organizationTools.handleGetOrganizationSnapshots(args as any);
-            break;
+
           default:
             throw new Error(`Unknown tool: ${name}`);
         }

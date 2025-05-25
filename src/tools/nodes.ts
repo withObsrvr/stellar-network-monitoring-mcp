@@ -217,7 +217,33 @@ export class NodeTools {
   searchNodesTool(): Tool {
     return {
       name: 'search_nodes',
-      description: 'Search nodes by various criteria (location, version, organization)',
+      description: `Find Stellar nodes using flexible search criteria.
+
+Use this when a user asks:
+- "Find nodes in [country/region]"
+- "Show me nodes running version X"
+- "Which nodes does [organization] operate?"
+- "Find active/inactive nodes"
+- "Search for validators with high uptime"
+
+This searches by:
+- Geographic location (country, region)
+- Stellar Core version
+- Organization
+- Active/inactive status
+- Validator status
+- Performance criteria
+
+DO NOT use this for:
+- General node listing (use get_validator_nodes for validators)
+- Health analysis (use check_node_health for specific nodes)
+- Performance comparison (use compare_nodes instead)
+- Organization focus (use analyze_organization_health instead)
+
+Examples:
+- User: "Find nodes in Germany"
+- User: "Show me SDF nodes"
+- User: "Active validators only"`,
       inputSchema: {
         type: 'object',
         properties: {
