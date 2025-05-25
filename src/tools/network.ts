@@ -152,7 +152,7 @@ Examples:
           },
           category: {
             type: 'string',
-            enum: ['all', 'consensus', 'performance', 'connectivity', 'validators'],
+            enum: ['all', 'consensus', 'performance', 'connectivity', 'validators', 'history_archive'],
             description: 'Filter by issue category (default: all)'
           }
         }
@@ -247,11 +247,14 @@ Examples:
 
       const networkInfo = response.data;
       const activeNodes = networkInfo.nodes.filter(node => node.active).length;
-      const validators = networkInfo.nodes.filter(node => node.validating).length;
-      const overloadedNodes = networkInfo.nodes.filter(node => node.overLoaded).length;
+      const validators = networkInfo.nodes.filter(node => node.isValidating || node.validating).length;
+      // Focus on validators for health metrics
       
       const healthScore = this.calculateNetworkHealthScore(networkInfo.nodes);
-      const status = this.determineNetworkStatus(healthScore, overloadedNodes, activeNodes);
+      const validatorsOnly = networkInfo.nodes.filter(node => node.isValidating || node.validating);
+      const overloadedValidators = validatorsOnly.filter(node => node.overLoaded).length;
+      const activeValidators = validatorsOnly.filter(node => node.active).length;
+      const status = this.determineNetworkStatus(healthScore, overloadedValidators, activeValidators);
 
       return {
         status,
@@ -260,13 +263,16 @@ Examples:
           totalNodes: networkInfo.nodes.length,
           activeNodes,
           validators,
-          overloadedNodes,
+          overloadedValidators,
           organizations: networkInfo.organizations.length
         },
         consensus: {
-          healthy: healthScore > 80,
+          healthy: healthScore > 80 && activeValidators >= 4,
           validatorsOnline: validators,
-          potentialIssues: overloadedNodes > 0 ? [`${overloadedNodes} nodes are overloaded`] : []
+          potentialIssues: [
+            ...(overloadedValidators > 0 ? [`${overloadedValidators} validators are overloaded`] : []),
+            ...(activeValidators < 4 ? ['Insufficient active validators for safe consensus'] : [])
+          ]
         },
         lastUpdated: networkInfo.updatedAt
       };
@@ -290,7 +296,7 @@ Examples:
       const nodes = networkInfo.nodes;
       
       const activeNodes = nodes.filter(node => node.active);
-      const validators = nodes.filter(node => node.validating);
+      const validators = nodes.filter(node => node.isValidating || node.validating);
       const uptimes = nodes
         .filter(node => node.uptime !== undefined)
         .map(node => node.uptime!);
@@ -326,7 +332,7 @@ Examples:
       }
 
       const nodes = response.data.nodes;
-      const validators = nodes.filter(node => node.validating && node.active);
+      const validators = nodes.filter(node => (node.isValidating || node.validating) && node.active);
       const issues: string[] = [];
       
       if (validators.length < 3) {
@@ -358,28 +364,45 @@ Examples:
   }
 
   private calculateNetworkHealthScore(nodes: Node[]): number {
-    if (nodes.length === 0) return 0;
+    // Focus on validators only since they are what matters for consensus
+    const validators = nodes.filter(node => node.isValidating || node.validating);
     
-    const activeNodes = nodes.filter(node => node.active).length;
-    const overloadedNodes = nodes.filter(node => node.overLoaded).length;
-    const validators = nodes.filter(node => node.validating).length;
+    if (validators.length === 0) return 0;
     
-    const activeRatio = activeNodes / nodes.length;
-    const overloadPenalty = (overloadedNodes / nodes.length) * 30;
-    const validatorBonus = Math.min((validators / nodes.length) * 20, 20);
+    const activeValidators = validators.filter(node => node.active).length;
+    const overloadedValidators = validators.filter(node => node.overLoaded).length;
     
-    return Math.max(0, Math.min(100, (activeRatio * 80) - overloadPenalty + validatorBonus));
+    // Base score on validator activity (80% weight)
+    const activeValidatorRatio = activeValidators / validators.length;
+    
+    // Penalty for overloaded validators (30 points max)
+    const overloadPenalty = (overloadedValidators / validators.length) * 30;
+    
+    // Bonus for having sufficient validators for robust consensus (up to 20 points)
+    const minimumValidators = 4; // Minimum for safe consensus
+    const optimalValidators = 20; // Optimal for decentralization
+    const validatorCountBonus = Math.min(
+      (activeValidators / optimalValidators) * 20,
+      20
+    );
+    
+    // Additional penalty if we have too few validators for safe consensus
+    const insufficientValidatorPenalty = activeValidators < minimumValidators ? 40 : 0;
+    
+    const score = (activeValidatorRatio * 80) - overloadPenalty + validatorCountBonus - insufficientValidatorPenalty;
+    
+    return Math.max(0, Math.min(100, score));
   }
 
-  private determineNetworkStatus(healthScore: number, overloadedNodes: number, activeNodes: number): string {
-    if (healthScore >= 90 && overloadedNodes === 0) return 'excellent';
-    if (healthScore >= 80 && overloadedNodes < activeNodes * 0.1) return 'good';
-    if (healthScore >= 60 && overloadedNodes < activeNodes * 0.2) return 'fair';
+  private determineNetworkStatus(healthScore: number, overloadedValidators: number, activeValidators: number): string {
+    if (healthScore >= 90 && overloadedValidators === 0) return 'excellent';
+    if (healthScore >= 80 && overloadedValidators < activeValidators * 0.1) return 'good';
+    if (healthScore >= 60 && overloadedValidators < activeValidators * 0.2) return 'fair';
     return 'poor';
   }
 
   private calculateConsensusHealth(nodes: Node[]): number {
-    const validators = nodes.filter(node => node.validating && node.active);
+    const validators = nodes.filter(node => (node.isValidating || node.validating) && node.active);
     if (validators.length === 0) return 0;
     
     const overloadedValidators = validators.filter(node => node.overLoaded).length;
@@ -477,8 +500,9 @@ Examples:
       const performanceIssues = this.detectPerformanceIssues(networkData.nodes);
       const connectivityIssues = this.detectConnectivityIssues(networkData.nodes);
       const validatorIssues = this.detectValidatorIssues(networkData.nodes);
+      const historyArchiveIssues = this.detectHistoryArchiveIssues(networkData.nodes);
 
-      issues.push(...consensusIssues, ...performanceIssues, ...connectivityIssues, ...validatorIssues);
+      issues.push(...consensusIssues, ...performanceIssues, ...connectivityIssues, ...validatorIssues, ...historyArchiveIssues);
 
       let filteredIssues = issues;
 
@@ -518,7 +542,7 @@ Examples:
       }
 
       const nodes = response.data.nodes;
-      const validators = nodes.filter(node => node.validating && node.active);
+      const validators = nodes.filter(node => (node.isValidating || node.validating) && node.active);
       
       const quorumAnalysis = this.analyzeQuorumConfiguration(validators);
       const intersectionAnalysis = this.analyzeQuorumIntersection(validators);
@@ -617,7 +641,7 @@ Examples:
             exportData.nodes = nodesResponse.data;
           }
           if (dataTypes.includes('validators')) {
-            exportData.validators = nodesResponse.data.filter(node => node.validating);
+            exportData.validators = nodesResponse.data.filter(node => node.isValidating || node.validating);
           }
         }
       }
@@ -671,7 +695,7 @@ Examples:
   }
 
   private analyzeValidatorTrends(nodes: Node[]): any {
-    const validators = nodes.filter(n => n.validating);
+    const validators = nodes.filter(n => n.isValidating || n.validating);
     const activeValidators = validators.filter(v => v.active);
     
     return {
@@ -690,7 +714,7 @@ Examples:
   }
 
   private analyzeConsensusTrends(nodes: Node[]): any {
-    const validators = nodes.filter(n => n.validating && n.active);
+    const validators = nodes.filter(n => (n.isValidating || n.validating) && n.active);
     const health = this.calculateConsensusHealth(nodes);
     
     return {
@@ -702,7 +726,7 @@ Examples:
 
   private detectConsensusIssues(nodes: Node[]): any[] {
     const issues: any[] = [];
-    const validators = nodes.filter(n => n.validating && n.active);
+    const validators = nodes.filter(n => (n.isValidating || n.validating) && n.active);
     
     if (validators.length < 4) {
       issues.push({
@@ -753,7 +777,7 @@ Examples:
 
   private detectValidatorIssues(nodes: Node[]): any[] {
     const issues: any[] = [];
-    const validators = nodes.filter(n => n.validating);
+    const validators = nodes.filter(n => n.isValidating || n.validating);
     const inactiveValidators = validators.filter(v => !v.active);
     
     if (inactiveValidators.length > 0) {
@@ -763,6 +787,52 @@ Examples:
         title: 'Inactive Validators',
         description: `${inactiveValidators.length} validators are currently inactive`,
         impact: 'Consensus security may be reduced'
+      });
+    }
+    
+    return issues;
+  }
+
+  private detectHistoryArchiveIssues(nodes: Node[]): any[] {
+    const issues: any[] = [];
+    
+    // Find nodes with history archive errors
+    const nodesWithArchiveErrors = nodes.filter(n => n.historyUrl && n.historyArchiveHasError);
+    
+    if (nodesWithArchiveErrors.length > 0) {
+      const organizationsAffected = new Set(nodesWithArchiveErrors.map(n => n.organizationId).filter(Boolean)).size;
+      
+      issues.push({
+        category: 'history_archive',
+        severity: 'warning',
+        title: 'History Archive Errors',
+        description: `${nodesWithArchiveErrors.length} nodes have history archive errors affecting ${organizationsAffected} organizations`,
+        impact: 'Historical data availability may be compromised',
+        affectedNodes: nodesWithArchiveErrors.map(n => ({
+          publicKey: n.publicKey,
+          name: n.name,
+          organizationId: n.organizationId
+        }))
+      });
+    }
+    
+    // Find nodes with history archives behind
+    const nodesWithArchivesBehind = nodes.filter(n => n.historyUrl !== null && !n.isFullValidator);
+    
+    if (nodesWithArchivesBehind.length > 0) {
+      const organizationsAffected = new Set(nodesWithArchivesBehind.map(n => n.organizationId).filter(Boolean)).size;
+      
+      issues.push({
+        category: 'history_archive',
+        severity: 'warning',
+        title: 'History Archives Behind',
+        description: `${nodesWithArchivesBehind.length} nodes have history archives behind the network affecting ${organizationsAffected} organizations`,
+        impact: 'History archive synchronization issues detected',
+        affectedNodes: nodesWithArchivesBehind.map(n => ({
+          publicKey: n.publicKey,
+          name: n.name,
+          organizationId: n.organizationId
+        }))
       });
     }
     
@@ -856,7 +926,7 @@ Examples:
     return {
       totalNodes: networkData.nodes.length,
       activeNodes: networkData.nodes.filter((n: any) => n.active).length,
-      validators: networkData.nodes.filter((n: any) => n.validating).length,
+      validators: networkData.nodes.filter((n: any) => n.isValidating || n.validating).length,
       organizations: networkData.organizations.length,
       lastUpdated: networkData.updatedAt
     };
@@ -876,7 +946,7 @@ Examples:
     return {
       averageUptime: uptimes.length > 0 ? uptimes.reduce((sum, u) => sum + u, 0) / uptimes.length : 0,
       nodeUtilization: nodes.filter(n => !n.overLoaded).length / nodes.length,
-      validatorEfficiency: nodes.filter(n => n.validating && n.active).length / nodes.filter(n => n.validating).length
+      validatorEfficiency: nodes.filter(n => (n.isValidating || n.validating) && n.active).length / nodes.filter(n => n.isValidating || n.validating).length
     };
   }
 
@@ -922,7 +992,7 @@ Examples:
       recommendations.push('Investigate network issues to improve overall health score');
     }
     
-    const validators = networkData.nodes.filter((n: any) => n.validating && n.active);
+    const validators = networkData.nodes.filter((n: any) => (n.isValidating || n.validating) && n.active);
     if (validators.length < 5) {
       recommendations.push('Consider adding more validators to improve decentralization');
     }

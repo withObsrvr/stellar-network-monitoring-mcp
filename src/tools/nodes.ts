@@ -79,6 +79,10 @@ export class NodeTools {
             type: 'string',
             enum: ['all', 'critical', 'warning'],
             description: 'Filter by issue severity (default: all)'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of failing nodes to return (default: 50, max: 100)'
           }
         }
       }
@@ -99,6 +103,10 @@ export class NodeTools {
           activeOnly: {
             type: 'boolean',
             description: 'Filter to only return active validators (default: true)'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of validators to return (default: 50, max: 100)'
           }
         }
       }
@@ -275,6 +283,10 @@ Examples:
             type: 'number',
             description: 'Minimum uptime percentage (0-100)'
           },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of nodes to return (default: 25, max: 50)'
+          },
           at: {
             type: 'string',
             description: 'ISO 8601 datetime for historical data (optional)'
@@ -397,18 +409,18 @@ Examples:
           host: node.host,
           port: node.port,
           active: node.active,
-          validating: node.validating,
+          validating: node.isValidating || node.validating,
           overLoaded: node.overLoaded,
-          stellarCoreVersion: node.stellarCoreVersion,
+          stellarCoreVersion: node.versionStr || node.stellarCoreVersion,
           organizationId: node.organizationId,
-          geography: node.geography,
-          uptime: node.uptime,
+          geography: node.geoData || node.geography,
+          uptime: node.statistics?.active24HoursPercentage || node.uptime,
           lastSeen: node.lastSeen
         })),
         summary: {
           total: nodes.length,
           active: nodes.filter(n => n.active).length,
-          validators: nodes.filter(n => n.validating).length,
+          validators: nodes.filter(n => n.isValidating || n.validating).length,
           overloaded: nodes.filter(n => n.overLoaded).length
         }
       };
@@ -459,17 +471,18 @@ Examples:
         score -= 20;
       }
 
-      if (node.uptime !== undefined && node.uptime < 95) {
-        issues.push(`Low uptime: ${node.uptime}%`);
-        score -= Math.max(0, (95 - node.uptime) * 2);
+      const uptime = node.statistics?.active24HoursPercentage || node.uptime;
+      if (uptime !== undefined && uptime < 95) {
+        issues.push(`Low uptime: ${uptime}%`);
+        score -= Math.max(0, (95 - uptime) * 2);
       }
 
-      if (!node.stellarCoreVersion) {
+      if (!node.versionStr && !node.stellarCoreVersion) {
         issues.push('Stellar Core version not reported');
         score -= 10;
       }
 
-      if (node.validating && !node.active) {
+      if ((node.isValidating || node.validating) && !node.active) {
         issues.push('Validator is offline');
         score -= 30;
       }
@@ -487,7 +500,7 @@ Examples:
     }
   }
 
-  async handleFindFailingNodes(args: { at?: string; severity?: string }): Promise<any> {
+  async handleFindFailingNodes(args: { at?: string; severity?: string; limit?: number }): Promise<any> {
     try {
       logger.info('Finding failing nodes', { at: args.at, severity: args.severity });
       
@@ -511,19 +524,20 @@ Examples:
 
         if (node.overLoaded) {
           issues.push('Node is overloaded');
-          if (node.validating) {
+          if (node.isValidating || node.validating) {
             severity = 'critical';
           }
         }
 
-        if (node.uptime !== undefined && node.uptime < 90) {
-          issues.push(`Low uptime: ${node.uptime}%`);
-          if (node.uptime < 80) {
+        const uptime = node.statistics?.active24HoursPercentage || node.uptime;
+        if (uptime !== undefined && uptime < 90) {
+          issues.push(`Low uptime: ${uptime}%`);
+          if (uptime < 80) {
             severity = 'critical';
           }
         }
 
-        if (node.validating && !node.active) {
+        if ((node.isValidating || node.validating) && !node.active) {
           issues.push('Validator is offline');
           severity = 'critical';
         }
@@ -538,9 +552,9 @@ Examples:
                 name: node.name,
                 host: node.host,
                 active: node.active,
-                validating: node.validating,
+                validating: node.isValidating || node.validating,
                 overLoaded: node.overLoaded,
-                uptime: node.uptime,
+                uptime: node.statistics?.active24HoursPercentage || node.uptime,
                 organizationId: node.organizationId
               },
               issues,
@@ -550,13 +564,25 @@ Examples:
         }
       }
 
+      // Apply limit to prevent token overflow
+      const limit = Math.min(args.limit || 50, 100);
+      const totalFailingNodes = failingNodes.length;
+      const limitedFailingNodes = failingNodes.slice(0, limit);
+
       return {
-        failingNodes,
+        failingNodes: limitedFailingNodes,
         summary: {
-          total: failingNodes.length,
-          critical: failingNodes.filter(fn => fn.severity === 'critical').length,
-          warning: failingNodes.filter(fn => fn.severity === 'warning').length,
-          validatorsAffected: failingNodes.filter(fn => fn.node.validating).length
+          total: totalFailingNodes,
+          returned: limitedFailingNodes.length,
+          critical: totalFailingNodes > 0 ? failingNodes.filter(fn => fn.severity === 'critical').length : 0,
+          warning: totalFailingNodes > 0 ? failingNodes.filter(fn => fn.severity === 'warning').length : 0,
+          validatorsAffected: totalFailingNodes > 0 ? failingNodes.filter(fn => fn.node.validating || fn.node.isValidating).length : 0,
+          truncated: totalFailingNodes > limit,
+          pagination: {
+            limit: limit,
+            hasMore: totalFailingNodes > limit,
+            nextPage: totalFailingNodes > limit ? `Use limit parameter to see more results` : null
+          }
         }
       };
     } catch (error) {
@@ -565,7 +591,7 @@ Examples:
     }
   }
 
-  async handleGetValidatorNodes(args: { at?: string; activeOnly?: boolean }): Promise<any> {
+  async handleGetValidatorNodes(args: { at?: string; activeOnly?: boolean; limit?: number }): Promise<any> {
     try {
       logger.info('Fetching validator nodes', { at: args.at, activeOnly: args.activeOnly });
       
@@ -575,32 +601,38 @@ Examples:
         throw new Error(response.error || 'Failed to fetch nodes');
       }
 
-      let validators = response.data.filter(node => node.validating);
+      let validators = response.data.filter(node => node.isValidating || node.validating);
       
       if (args.activeOnly !== false) {
         validators = validators.filter(node => node.active);
       }
 
+      // Apply limit to prevent token overflow
+      const limit = Math.min(args.limit || 50, 100);
+      const limitedValidators = validators.slice(0, limit);
+
       return {
-        validators: validators.map(validator => ({
+        validators: limitedValidators.map(validator => ({
           publicKey: validator.publicKey,
           name: validator.name,
           host: validator.host,
           active: validator.active,
-          validating: validator.validating,
+          validating: validator.isValidating || validator.validating,
           overLoaded: validator.overLoaded,
           stellarCoreVersion: validator.stellarCoreVersion,
           organizationId: validator.organizationId,
-          geography: validator.geography,
-          uptime: validator.uptime,
+          geography: validator.geoData || validator.geography,
+          uptime: validator.statistics?.active24HoursPercentage || validator.uptime,
           quorumSet: validator.quorumSet,
           lastSeen: validator.lastSeen
         })),
         summary: {
           total: validators.length,
+          returned: limitedValidators.length,
           active: validators.filter(v => v.active).length,
           overloaded: validators.filter(v => v.overLoaded).length,
-          byOrganization: this.groupValidatorsByOrganization(validators)
+          byOrganization: this.groupValidatorsByOrganization(limitedValidators),
+          truncated: validators.length > limit
         }
       };
     } catch (error) {
@@ -621,6 +653,18 @@ Examples:
       acc[org] = (acc[org] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
+  }
+
+  private createOrganizationSummary(nodes: Node[], orgNameMap: Map<string, string>): any[] {
+    const orgGroups = this.groupValidatorsByOrganization(nodes);
+    
+    return Object.entries(orgGroups).map(([orgId, nodeCount]) => ({
+      id: orgId,
+      name: orgNameMap.get(orgId) || 'Unknown',
+      nodeCount: nodeCount,
+      activeNodes: nodes.filter(n => n.organizationId === orgId && n.active).length,
+      validators: nodes.filter(n => n.organizationId === orgId && (n.isValidating || n.validating)).length
+    })).sort((a, b) => b.nodeCount - a.nodeCount);
   }
 
   async handleGetNodeSnapshots(args: { publicKey: string; at?: string; limit?: number }): Promise<any> {
@@ -686,7 +730,7 @@ Examples:
           nodeMetrics: {
             publicKey: node.publicKey,
             name: node.name,
-            currentUptime: node.uptime,
+            currentUptime: node.statistics?.active24HoursPercentage || node.uptime,
             performance: this.calculatePerformanceScore(node, snapshots),
             connectivity: {
               active: node.active,
@@ -710,7 +754,7 @@ Examples:
           networkMetrics: {
             totalNodes: networkResponse.data.nodes?.length || 0,
             activeNodes: networkResponse.data.nodes?.filter((n: any) => n.active).length || 0,
-            validators: networkResponse.data.nodes?.filter((n: any) => n.validating).length || 0,
+            validators: networkResponse.data.nodes?.filter((n: any) => n.isValidating || n.validating).length || 0,
             averageUptime: this.calculateAverageUptime(networkResponse.data.nodes || []),
             networkHealth: this.calculateNetworkHealth(networkResponse.data)
           },
@@ -760,7 +804,7 @@ Examples:
 
         if (metricsToCompare.includes('uptime')) {
           comparison.uptime = {
-            current: node.uptime,
+            current: node.statistics?.active24HoursPercentage || node.uptime,
             trend: this.calculateUptimeTrend(snapshots)
           };
         }
@@ -809,7 +853,7 @@ Examples:
         throw new Error(response.error || 'Failed to fetch nodes for ranking');
       }
 
-      let validators = response.data.filter(node => node.validating);
+      let validators = response.data.filter(node => node.isValidating || node.validating);
       
       if (args.activeOnly !== false) {
         validators = validators.filter(node => node.active);
@@ -829,15 +873,15 @@ Examples:
           publicKey: validator.publicKey,
           name: validator.name,
           organizationId: validator.organizationId,
-          geography: validator.geography,
+          geography: validator.geoData || validator.geography,
           active: validator.active,
-          uptime: validator.uptime,
+          uptime: validator.statistics?.active24HoursPercentage || validator.uptime,
           stellarCoreVersion: validator.stellarCoreVersion
         };
 
         switch (sortBy) {
           case 'uptime':
-            ranking.score = validator.uptime || 0;
+            ranking.score = validator.statistics?.active24HoursPercentage || validator.uptime || 0;
             break;
           case 'performance':
             ranking.score = this.calculatePerformanceScore(validator, snapshots);
@@ -926,7 +970,8 @@ Examples:
 
     if (node.active) score += 30;
     if (!node.overLoaded) score += 20;
-    if (node.uptime) score += Math.min(30, node.uptime * 0.3);
+    const uptime = node.statistics?.active24HoursPercentage || node.uptime;
+    if (uptime) score += Math.min(30, uptime * 0.3);
 
     const stabilityScore = this.calculateStabilityScore(snapshots);
     score += stabilityScore * 20;
@@ -937,7 +982,8 @@ Examples:
   private calculateReliabilityScore(node: Node, snapshots: NodeSnapshot[]): number {
     let score = 0;
 
-    if (node.uptime) score += node.uptime * 0.4;
+    const uptime = node.statistics?.active24HoursPercentage || node.uptime;
+    if (uptime) score += uptime * 0.4;
     if (node.active) score += 20;
     if (!node.overLoaded) score += 10;
 
@@ -999,12 +1045,12 @@ Examples:
 
   private calculateAverageUptime(nodes: Node[]): number {
     if (nodes.length === 0) return 0;
-    const uptimes = nodes.map(n => n.uptime || 0).filter(u => u > 0);
+    const uptimes = nodes.map(n => n.statistics?.active24HoursPercentage || n.uptime || 0).filter(u => u > 0);
     return uptimes.length > 0 ? uptimes.reduce((sum, u) => sum + u, 0) / uptimes.length : 0;
   }
 
   private calculateMedianUptime(nodes: Node[]): number {
-    const uptimes = nodes.map(n => n.uptime || 0).filter(u => u > 0).sort((a, b) => a - b);
+    const uptimes = nodes.map(n => n.statistics?.active24HoursPercentage || n.uptime || 0).filter(u => u > 0).sort((a, b) => a - b);
     if (uptimes.length === 0) return 0;
     
     const mid = Math.floor(uptimes.length / 2);
@@ -1014,7 +1060,7 @@ Examples:
   private calculateNetworkHealth(networkData: any): number {
     const nodes = networkData.nodes || [];
     const activeNodes = nodes.filter((n: any) => n.active);
-    const validators = nodes.filter((n: any) => n.validating);
+    const validators = nodes.filter((n: any) => n.isValidating || n.validating);
     const activeValidators = validators.filter((v: any) => v.active);
 
     let health = 0;
@@ -1101,33 +1147,51 @@ Examples:
     validating?: boolean; 
     overLoaded?: boolean; 
     minUptime?: number; 
+    limit?: number;
     at?: string 
   }): Promise<any> {
     try {
       logger.info('Searching nodes', { args });
       
-      const response = await this.client.getAllNodes(args.at);
+      // First get organizations for name mapping
+      const orgsResponse = await this.client.getAllOrganizations();
       
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to fetch nodes');
+      // Then get nodes with immediate filtering to prevent token overflow
+      const nodesResponse = await this.client.getAllNodes(args.at);
+      
+      if (!nodesResponse.success) {
+        throw new Error(nodesResponse.error || 'Failed to fetch nodes');
       }
 
-      let filteredNodes = response.data;
+      // Apply early limit to prevent token overflow
+      const maxInitialNodes = 20; // Limit initial dataset very aggressively
+      const rawNodes = nodesResponse.data.slice(0, maxInitialNodes);
+
+      // Create organization name mapping
+      const orgNameMap = new Map<string, string>();
+      if (orgsResponse.success) {
+        orgsResponse.data.forEach(org => {
+          orgNameMap.set(org.id, org.name);
+        });
+      }
+
+      let filteredNodes = rawNodes;
 
       // Apply filters
       if (args.location) {
         const locationFilter = args.location.toLowerCase();
-        filteredNodes = filteredNodes.filter(node => 
-          node.geography && (
-            node.geography.countryName?.toLowerCase().includes(locationFilter) ||
-            node.geography.countryCode?.toLowerCase().includes(locationFilter)
-          )
-        );
+        filteredNodes = filteredNodes.filter(node => {
+          const geo = node.geoData || node.geography;
+          return geo && (
+            geo.countryName?.toLowerCase().includes(locationFilter) ||
+            geo.countryCode?.toLowerCase().includes(locationFilter)
+          );
+        });
       }
 
       if (args.version) {
         filteredNodes = filteredNodes.filter(node => 
-          node.stellarCoreVersion === args.version
+          (node.versionStr || node.stellarCoreVersion) === args.version
         );
       }
 
@@ -1142,7 +1206,7 @@ Examples:
       }
 
       if (args.validating !== undefined) {
-        filteredNodes = filteredNodes.filter(node => node.validating === args.validating);
+        filteredNodes = filteredNodes.filter(node => (node.isValidating || node.validating) === args.validating);
       }
 
       if (args.overLoaded !== undefined) {
@@ -1150,32 +1214,50 @@ Examples:
       }
 
       if (args.minUptime !== undefined) {
-        filteredNodes = filteredNodes.filter(node => 
-          node.uptime !== undefined && node.uptime >= args.minUptime!
-        );
+        filteredNodes = filteredNodes.filter(node => {
+          const uptime = node.statistics?.active24HoursPercentage || node.uptime;
+          return uptime !== undefined && uptime >= args.minUptime!;
+        });
       }
 
+      // Apply limit to prevent token overflow - reduce default limit significantly
+      const limit = Math.min(args.limit || 10, 25);
+      const totalMatching = filteredNodes.length;
+      const limitedNodes = filteredNodes.slice(0, limit);
+
+      // Create organization summary with names
+      const orgSummary = this.createOrganizationSummary(limitedNodes, orgNameMap);
+
       return {
-        nodes: filteredNodes.map(node => ({
+        nodes: limitedNodes.map(node => ({
           publicKey: node.publicKey,
           name: node.name,
           host: node.host,
           port: node.port,
           active: node.active,
-          validating: node.validating,
+          validating: node.isValidating || node.validating,
           overLoaded: node.overLoaded,
-          stellarCoreVersion: node.stellarCoreVersion,
+          stellarCoreVersion: node.versionStr || node.stellarCoreVersion,
           organizationId: node.organizationId,
-          geography: node.geography,
-          uptime: node.uptime,
+          organizationName: orgNameMap.get(node.organizationId || '') || 'Unknown',
+          geography: node.geoData || node.geography,
+          uptime: node.statistics?.active24HoursPercentage || node.uptime,
           lastSeen: node.lastSeen
         })),
+        organizations: orgSummary,
         filters: args,
         summary: {
-          total: filteredNodes.length,
-          active: filteredNodes.filter(n => n.active).length,
-          validators: filteredNodes.filter(n => n.validating).length,
-          overloaded: filteredNodes.filter(n => n.overLoaded).length
+          total: totalMatching,
+          returned: limitedNodes.length,
+          active: limitedNodes.filter(n => n.active).length,
+          validators: limitedNodes.filter(n => n.isValidating || n.validating).length,
+          overloaded: limitedNodes.filter(n => n.overLoaded).length,
+          truncated: totalMatching > limit,
+          pagination: {
+            limit: limit,
+            hasMore: totalMatching > limit,
+            nextPage: totalMatching > limit ? `Use limit parameter with offset to see more` : null
+          }
         }
       };
     } catch (error) {
@@ -1205,17 +1287,19 @@ Examples:
       // Filter by location criteria
       if (args.country) {
         const countryFilter = args.country.toLowerCase();
-        filteredNodes = filteredNodes.filter(node => 
-          node.geography?.countryName?.toLowerCase().includes(countryFilter) ||
-          node.geography?.countryCode?.toLowerCase().includes(countryFilter)
-        );
+        filteredNodes = filteredNodes.filter(node => {
+          const geo = node.geoData || node.geography;
+          return geo?.countryName?.toLowerCase().includes(countryFilter) ||
+                 geo?.countryCode?.toLowerCase().includes(countryFilter);
+        });
       }
 
       if (args.region) {
         const regionFilter = args.region.toLowerCase();
-        filteredNodes = filteredNodes.filter(node => 
-          node.geography?.countryName?.toLowerCase().includes(regionFilter)
-        );
+        filteredNodes = filteredNodes.filter(node => {
+          const geo = node.geoData || node.geography;
+          return geo?.countryName?.toLowerCase().includes(regionFilter);
+        });
       }
 
       if (args.city) {
@@ -1238,16 +1322,16 @@ Examples:
           name: node.name,
           host: node.host,
           active: node.active,
-          validating: node.validating,
+          validating: node.isValidating || node.validating,
           organizationId: node.organizationId,
-          geography: node.geography,
-          uptime: node.uptime
+          geography: node.geoData || node.geography,
+          uptime: node.statistics?.active24HoursPercentage || node.uptime
         })),
         locationDistribution: locationGroups,
         summary: {
           total: filteredNodes.length,
           active: filteredNodes.filter(n => n.active).length,
-          validators: filteredNodes.filter(n => n.validating).length,
+          validators: filteredNodes.filter(n => n.isValidating || n.validating).length,
           countries: Object.keys(locationGroups.byCountry).length,
           cities: Object.keys(locationGroups.byCity).length
         }
@@ -1278,9 +1362,9 @@ Examples:
 
       // Filter by version criteria
       filteredNodes = filteredNodes.filter(node => {
-        if (!node.stellarCoreVersion) return false;
+        if (!node.versionStr && !node.stellarCoreVersion) return false;
         
-        return this.matchVersion(node.stellarCoreVersion, args.version, comparison);
+        return this.matchVersion(node.versionStr || node.stellarCoreVersion || '', args.version, comparison);
       });
 
       if (args.activeOnly) {
@@ -1296,11 +1380,11 @@ Examples:
           name: node.name,
           host: node.host,
           active: node.active,
-          validating: node.validating,
-          stellarCoreVersion: node.stellarCoreVersion,
+          validating: node.isValidating || node.validating,
+          stellarCoreVersion: node.versionStr || node.stellarCoreVersion,
           organizationId: node.organizationId,
-          geography: node.geography,
-          uptime: node.uptime
+          geography: node.geoData || node.geography,
+          uptime: node.statistics?.active24HoursPercentage || node.uptime
         })),
         versionAnalysis: {
           targetVersion: args.version,
@@ -1310,7 +1394,7 @@ Examples:
         summary: {
           total: filteredNodes.length,
           active: filteredNodes.filter(n => n.active).length,
-          validators: filteredNodes.filter(n => n.validating).length,
+          validators: filteredNodes.filter(n => n.isValidating || n.validating).length,
           uniqueVersions: Object.keys(versionGroups).length
         }
       };
@@ -1366,7 +1450,7 @@ Examples:
         summary: {
           totalNodes: nodes.length,
           activeNodes: nodes.filter(n => n.active).length,
-          validators: nodes.filter(n => n.validating).length,
+          validators: nodes.filter(n => n.isValidating || n.validating).length,
           organizations: [...new Set(nodes.map(n => n.organizationId).filter(Boolean))].length
         }
       };
@@ -1382,9 +1466,10 @@ Examples:
     const byRegion: Record<string, number> = {};
 
     nodes.forEach(node => {
-      if (node.geography) {
-        if (node.geography.countryName) {
-          byCountry[node.geography.countryName] = (byCountry[node.geography.countryName] || 0) + 1;
+      const geo = node.geoData || node.geography;
+      if (geo) {
+        if (geo.countryName) {
+          byCountry[geo.countryName] = (byCountry[geo.countryName] || 0) + 1;
         }
         // Note: Geography interface doesn't have city or region fields in current API
         // These will remain empty with current geography structure
@@ -1396,7 +1481,7 @@ Examples:
 
   private groupNodesByVersion(nodes: Node[]): Record<string, number> {
     return nodes.reduce((acc, node) => {
-      const version = node.stellarCoreVersion || 'Unknown';
+      const version = node.versionStr || node.stellarCoreVersion || 'Unknown';
       acc[version] = (acc[version] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
@@ -1450,13 +1535,15 @@ Examples:
       n.organizationId === targetNode.organizationId && n.publicKey !== targetNode.publicKey
     );
     
-    const sameLocationNodes = allNodes.filter(n => 
-      n.geography?.countryName === targetNode.geography?.countryName && 
-      n.publicKey !== targetNode.publicKey
-    );
+    const sameLocationNodes = allNodes.filter(n => {
+      const nGeo = n.geoData || n.geography;
+      const targetGeo = targetNode.geoData || targetNode.geography;
+      return nGeo?.countryName === targetGeo?.countryName && 
+             n.publicKey !== targetNode.publicKey;
+    });
 
     const sameVersionNodes = allNodes.filter(n => 
-      n.stellarCoreVersion === targetNode.stellarCoreVersion && 
+      (n.versionStr || n.stellarCoreVersion) === (targetNode.versionStr || targetNode.stellarCoreVersion) && 
       n.publicKey !== targetNode.publicKey
     );
 
@@ -1465,7 +1552,7 @@ Examples:
         publicKey: targetNode.publicKey,
         name: targetNode.name,
         organizationId: targetNode.organizationId,
-        geography: targetNode.geography
+        geography: targetNode.geoData || targetNode.geography
       },
       potentialPeers: {
         sameOrganization: sameOrgNodes.length,
@@ -1475,8 +1562,8 @@ Examples:
       connectivity: {
         diversity: {
           organizations: [...new Set(allNodes.map(n => n.organizationId))].length,
-          locations: [...new Set(allNodes.map(n => n.geography?.countryName))].length,
-          versions: [...new Set(allNodes.map(n => n.stellarCoreVersion))].length
+          locations: [...new Set(allNodes.map(n => (n.geoData || n.geography)?.countryName))].length,
+          versions: [...new Set(allNodes.map(n => n.versionStr || n.stellarCoreVersion))].length
         }
       }
     };

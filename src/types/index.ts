@@ -23,9 +23,18 @@ export interface Node {
   active: boolean;
   overLoaded: boolean;
   validating: boolean;
+  // History archive properties
+  historyUrl?: string;
+  historyArchiveHasError?: boolean;
+  isFullValidator?: boolean;
+  // API compatibility properties
+  isValidating?: boolean;
+  isValidator?: boolean;
   stellarCoreVersion?: string;
+  versionStr?: string;
   uptime?: number;
   geography?: Geography;
+  geoData?: Geography;
   statistics?: NodeStatistics;
   quorumSet?: QuorumSet;
   lastSeen?: string;
@@ -84,9 +93,17 @@ export interface Geography {
 export interface NodeStatistics {
   uptime?: number;
   has24HourStats?: boolean;
+  has30DayStats?: boolean;
   overLoadedCount?: number;
   validatingCount?: number;
   activeCount?: number;
+  // API specific properties
+  active24HoursPercentage?: number;
+  validating24HoursPercentage?: number;
+  overLoaded24HoursPercentage?: number;
+  active30DaysPercentage?: number;
+  validating30DaysPercentage?: number;
+  overLoaded30DaysPercentage?: number;
 }
 
 export interface OrganizationStatistics {
