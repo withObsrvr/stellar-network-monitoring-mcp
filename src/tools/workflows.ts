@@ -328,7 +328,7 @@ Examples:
         const failing = await this.nodeTools.handleFindFailingNodes({
           severity: 'all'
         });
-        failingValidators = failing.failingNodes.filter((node: any) => node.node.validating);
+        failingValidators = failing.failingNodes.filter((node: any) => node.node.validating || node.node.isValidating);
       }
 
       const analysis = {
@@ -399,7 +399,10 @@ Examples:
         nodes: {
           summary: orgNodes.summary,
           details: orgNodes.nodes,
-          validators: orgNodes.nodes.filter((node: any) => node.validating)
+          validators: orgNodes.nodes.filter((node: any) => 
+            node.statistics?.validating24HoursPercentage > 0 || 
+            node.statistics?.validating30DaysPercentage > 0
+          )
         },
         historical: historical,
         healthScore: this.calculateOrganizationHealthScore(reliability, orgNodes),
@@ -430,8 +433,8 @@ Examples:
         includeInactive: args.includeInactive || false
       });
 
-      // Step 3: Search nodes for geographic analysis
-      const searchResults = await this.nodeTools.handleSearchNodes({});
+      // Step 3: Search nodes for geographic analysis (with limit to prevent token overflow)
+      const searchResults = await this.nodeTools.handleSearchNodes({ limit: 10 });
 
       const analysis = {
         analysis: {

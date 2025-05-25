@@ -205,7 +205,10 @@ export class OrganizationTools {
       }
 
       const activeNodes = orgNodes.filter(node => node.active);
-      const validators = orgNodes.filter(node => node.validating);
+      const validators = orgNodes.filter(node => 
+        (node.statistics?.validating24HoursPercentage || 0) > 0 || 
+        (node.statistics?.validating30DaysPercentage || 0) > 0
+      );
       const overloadedNodes = orgNodes.filter(node => node.overLoaded);
       const nodesWithUptime = orgNodes.filter(node => node.uptime !== undefined);
       
@@ -269,7 +272,7 @@ export class OrganizationTools {
           host: node.host,
           port: node.port,
           active: node.active,
-          validating: node.validating,
+          validating: node.isValidating || node.validating,
           overLoaded: node.overLoaded,
           stellarCoreVersion: node.stellarCoreVersion,
           geography: node.geography,
@@ -280,7 +283,10 @@ export class OrganizationTools {
         summary: {
           total: orgNodes.length,
           active: orgNodes.filter(n => n.active).length,
-          validators: orgNodes.filter(n => n.validating).length,
+          validators: orgNodes.filter(n => 
+            (n.statistics?.validating24HoursPercentage || 0) > 0 || 
+            (n.statistics?.validating30DaysPercentage || 0) > 0
+          ).length,
           overloaded: orgNodes.filter(n => n.overLoaded).length,
           byVersion: this.groupNodesByVersion(orgNodes),
           byCountry: this.groupNodesByCountry(orgNodes)

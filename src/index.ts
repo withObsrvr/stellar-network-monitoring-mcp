@@ -72,6 +72,7 @@ class StellarNetworkMonitoringServer {
           this.nodeTools.rankValidatorsTool(),
           
           // Organization Tools
+          this.organizationTools.getAllOrganizationsTool(),
           this.organizationTools.getOrganizationDetailsTool(),
           this.organizationTools.getOrganizationNodesTool(),
         ],
@@ -140,6 +141,9 @@ class StellarNetworkMonitoringServer {
             break;
 
           // Organization Tools
+          case 'get_all_organizations':
+            result = await this.organizationTools.handleGetAllOrganizations();
+            break;
           case 'get_organization_details':
             result = await this.organizationTools.handleGetOrganizationDetails(args as any);
             break;
